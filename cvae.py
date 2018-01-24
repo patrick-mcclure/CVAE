@@ -5,6 +5,7 @@ import tensorflow as tf
 import numpy as np
 import prettytensor as pt
 from convolutional_vae_util import deconv2d
+from nilearn import image as nilimage
 
 from utils import *
 
@@ -121,10 +122,10 @@ class CVAE(object):
                                phase=phase):
             return (pt.wrap(z).
                     reshape([-1, 1, 1, self.latent_size]).
-                    deconv2d(3, 128, edges='VALID', phase=phase).
-                    deconv2d(5, 64, edges='VALID', phase=phase).
-                    deconv2d(5, 32, stride=2, phase=phase).
-                    deconv2d(5, 1, stride=2, activation_fn=tf.nn.sigmoid, phase=phase).
+                    deconv3d(5, 8, edges='VALID', phase=phase).
+                    deconv3d(5, 8, edges='VALID', phase=phase).
+                    deconv3d(5, 8, stride=2, phase=phase).
+                    deconv3d(5, 8, stride=2, activation_fn=tf.nn.sigmoid, phase=phase).
                     flatten()).tensor
 
     def encoder(self, inputs, latent_size, activ=tf.nn.elu, phase=pt.Phase.train):
@@ -136,10 +137,9 @@ class CVAE(object):
                                phase=phase):
             params = (pt.wrap(inputs).
                       reshape([-1, self.input_shape[0], self.input_shape[1], 1]).
-                      conv2d(5, 32, stride=2).
-                      conv2d(5, 64, stride=2).
-                      conv2d(5, 128, edges='VALID').
-                      #dropout(0.9).
+                      conv3d(5, 8, stride=2).
+                      conv3d(5, 8, stride=2).
+                      conv3d(5, 8, edges='VALID').
                       flatten().
                       fully_connected(self.latent_size * 2, activation_fn=None)).tensor
 
@@ -203,19 +203,21 @@ class CVAE(object):
         return sess.run(self.x_reconstr_mean_test,
                         feed_dict=feed_dict)
 
-    def train(self, sess, source, batch_size, training_epochs=10, display_step=5):
-        n_samples = source.train.num_examples
+    def train(self, sess, input_files, batch_size, training_epochs=10, display_step=5):
+        n_samples = len(input_files)
+        split_files = np.array_split(np.random.shuffle(input_files),ceil(n_samples / batch_size))
         for epoch in range(training_epochs):
             avg_cost = 0.
             total_batch = int(n_samples / batch_size)
             # Loop over all batches
             for i in range(total_batch):
-                batch_xs, _ = source.train.next_batch(batch_size)
-
+                batch_files = split_files[i]
+                batch_xs = [normalize(nilimage.load_img(batch_file).get_data()) for batch_file in batch_files]
+                batch_xs = np.array(batch_xs).astype(np.float32)
                 # Fit training using batch data
                 cost = self.partial_fit(sess, batch_xs)
                 # Compute average loss
-                avg_cost += cost / n_samples * batch_size
+                avg_cost += cost / (n_samples * batch_size)
 
             # Display logs per epoch step
             if epoch % display_step == 0:
